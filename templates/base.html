@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Loan System</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f6f8fb; margin:0; padding:0; }
+    header { background:#2d89ef; color:white; padding:15px; display:flex; justify-content:space-between; align-items:center; }
+    header h2 { margin:0; font-size:20px; }
+    nav a { margin-left:15px; color:white; text-decoration:none; font-weight:bold; }
+    .container { padding:20px; }
+    .flash { padding:10px; margin-bottom:15px; border-radius:5px; }
+    .flash.success { background:#d4edda; color:#155724; }
+    .flash.error { background:#f8d7da; color:#721c24; }
+    table { width:100%; border-collapse:collapse; background:#fff; margin-top:20px; box-shadow:0 2px 5px rgba(0,0,0,0.1);}
+    th, td { padding:10px; border-bottom:1px solid #ddd; text-align:left; }
+    th { background:#f0f0f0; }
+    a.button { padding:5px 10px; border-radius:5px; background:#2d89ef; color:white; text-decoration:none; }
+    a.delete { background:#d9534f; }
+    .dashboard-summary, .pagination { margin-top:20px; }
+    .dashboard-summary p { margin:5px 0; font-weight:bold; }
+    .pagination a { margin-right:10px; text-decoration:none; color:#2d89ef; font-weight:bold; }
+    .pagination span { font-weight:bold; }
+  </style>
+</head>
+<body>
+  <header>
+    <h2>Loan Admin Dashboard</h2>
+    <nav>
+      <a href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+  </header>
+
+  <div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

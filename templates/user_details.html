@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>User Details</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>User Details: {{ user.full_name }}</h1>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="user-info">
+        <p><strong>Full Name:</strong> {{ user.full_name }}</p>
+        <p><strong>Phone:</strong> {{ user.phone }}</p>
+        <p><strong>National ID:</strong> {{ user.national_id }}</p>
+        <p><strong>Address:</strong> {{ user.address }}</p>
+        <p><strong>Father's Name:</strong> {{ user.father_name }}</p>
+        <p><strong>Mother's Name:</strong> {{ user.mother_name }}</p>
+        <p><strong>Loan Amount:</strong> {{ user.loan_amount }}</p>
+        <p><strong>Loan Duration:</strong> {{ user.duration }} days</p>
+    </div>
+
+    <h2>Repayment Schedule</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Due Date</th>
+                <th>Countdown</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in repayments %}
+            <tr>
+                <td data-label="ID">{{ r.id }}</td>
+                <td data-label="Amount">{{ r.amount }}</td>
+                <td data-label="Status">{{ r.status }}</td>
+                <td data-label="Due Date">{{ r.due_date }}</td>
+                <td data-label="Countdown">{{ r.countdown }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <a href="{{ url_for('dashboard') }}" class="btn btn-warning">Back to Dashboard</a>
+</body>
+</html>

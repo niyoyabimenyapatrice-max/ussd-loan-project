@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Edit User</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Edit User</h1>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('edit_user', user_id=user['id']) }}">
+        <label>Full Name:</label><br>
+        <input type="text" name="full_name" value="{{ user['full_name'] }}" required><br><br>
+
+        <label>Phone:</label><br>
+        <input type="text" name="phone" value="{{ user['phone'] }}" required><br><br>
+
+        <label>National ID:</label><br>
+        <input type="text" name="national_id" value="{{ user['national_id'] }}" required><br><br>
+
+        <label>Address:</label><br>
+        <input type="text" name="address" value="{{ user['address'] }}" required><br><br>
+
+        <label>Father's Name:</label><br>
+        <input type="text" name="father_name" value="{{ user['father_name'] }}" required><br><br>
+
+        <label>Mother's Name:</label><br>
+        <input type="text" name="mother_name" value="{{ user['mother_name'] }}" required><br><br>
+
+        <label>Loan Amount:</label><br>
+        <input type="number" name="loan_amount" value="{{ user['loan_amount'] }}" required><br><br>
+
+        <label>Loan Duration (days):</label><br>
+        <input type="number" name="duration" value="{{ user['duration'] }}" required><br><br>
+
+        <button type="submit" class="btn btn-success">Update User</button>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-danger">Cancel</a>
+    </form>
+</body>
+</html>

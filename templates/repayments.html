@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Repayment Schedule</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+  <h1>Repayment Schedule</h1>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Due Date</th>
+        <th>Amount</th>
+        <th>Status</th>
+        <th>Time Remaining</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for repayment in repayments %}
+        <tr>
+          <td>{{ repayment.due_date }}</td>
+          <td>{{ repayment.amount }}</td>
+          <td>{{ repayment.status }}</td>
+          <td>{{ repayment.remaining_time }}</td>
+          <td>
+            {% if repayment.status != 'Paid' %}
+              <a href="{{ url_for('mark_repayment_paid', repayment_id=repayment.id) }}" class="btn">Mark Paid</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No repayment schedule available.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p><a href="{{ url_for('dashboard') }}" class="btn">Back to Dashboard</a></p>
+
+  <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

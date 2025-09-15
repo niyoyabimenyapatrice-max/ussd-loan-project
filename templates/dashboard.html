@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f6f8fb; color: #222; }
+        h1, h2 { color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; border-radius: 6px; overflow: hidden; }
+        th, td { padding: 10px; border-bottom: 1px solid #ddd; text-align: left; }
+        th { background: #007bff; color: #fff; }
+        .btn { padding: 6px 12px; text-decoration: none; margin-right: 5px; border-radius: 4px; color: #fff; cursor: pointer; }
+        .btn-success { background: #28a745; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn-danger { background: #dc3545; }
+        .flash { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .flash-success { background: #d4edda; color: #155724; }
+        .flash-error { background: #f8d7da; color: #721c24; }
+        .summary p { margin: 5px 0; font-weight: bold; }
+        .pagination a, .pagination strong { margin: 0 5px; text-decoration: none; }
+        .pagination strong { font-weight: bold; }
+        form { display: inline; }
+    </style>
+</head>
+<body>
+    <h1>Admin Dashboard</h1>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Dashboard Summary -->
+    <div class="summary">
+        <p>Total Users: {{ summary.total_users }}</p>
+        <p>Total Loans: {{ summary.total_loans }}</p>
+        <p>Total Repaid: {{ summary.total_repaid }}</p>
+        <p>Completed Users: {{ summary.completed_users }}</p>
+        <p>In Progress: {{ summary.in_progress_users }}</p>
+    </div>
+
+    <!-- Export button -->
+    <a href="{{ url_for('export_users') }}" class="btn btn-success">⬇ Export to CSV</a>
+
+    <!-- Registered Users Table -->
+    <h2>Registered Users</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Full Name</th>
+                <th>Phone</th>
+                <th>Loan Amount</th>
+                <th>Total Paid</th>
+                <th>Remaining</th>
+                <th>Next Due</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in rows %}
+            <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.full_name }}</td>
+                <td>{{ user.phone }}</td>
+                <td>{{ user.loan_amount }}</td>
+                <td>{{ user.total_paid }}</td>
+                <td>{{ user.remaining }}</td>
+                <td>{{ (user.countdown_seconds // 86400) }} days</td>
+                <td>
+                    <a href="{{ url_for('mark_paid_route', repayment_id=user.id) }}" class="btn btn-success">Mark Paid</a>
+                    <a href="{{ url_for('user_details', user_id=user.id) }}" class="btn btn-warning">Edit</a>
+                    <a href="{{ url_for('delete_user_route', user_id=user.id) }}" class="btn btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Pagination -->
+    <div class="pagination">
+        {% if page > 1 %}
+            <a href="{{ url_for('dashboard', page=page-1, search=search) }}">Prev</a>
+        {% endif %}
+        {% for p in range(1, total_pages + 1) %}
+            {% if p == page %}
+                <strong>{{ p }}</strong>
+            {% else %}
+                <a href="{{ url_for('dashboard', page=p, search=search) }}">{{ p }}</a>
+            {% endif %}
+        {% endfor %}
+        {% if page < total_pages %}
+            <a href="{{ url_for('dashboard', page=page+1, search=search) }}">Next</a>
+        {% endif %}
+    </div>
+
+    <!-- MoMoPay Summary Table -->
+    <h2>MoMoPay Accounts</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Phone</th>
+                <th>Balance</th>
+                <th>Float Shared</th>
+                <th>Merged Batch</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for account in momopay_summary %}
+            <tr>
+                <td>{{ account.phone }}</td>
+                <td>{{ account.balance }}</td>
+                <td>{{ account.float_shared }}</td>
+                <td>{{ account.merged_batch }}</td>
+                <td>
+                    <form action="{{ url_for('delete_momopay_route', phone=account.phone) }}" method="POST" onsubmit="return confirm('Delete this MoMoPay account?')">
+                        <button type="submit" class="btn btn-danger">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
