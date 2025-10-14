@@ -1,24 +1,192 @@
-from flask import Flask, request, render_template, redirect, url_for, session, flash, jsonify, send_file
-from database import (
-    add_user, generate_repayment_schedule, search_users, get_dashboard_summary,
-    get_user_by_id, delete_user, get_repayments_by_user, mark_repayment_as_paid,
-    get_momopays, add_momopay, update_momopay_balance, get_merged_momopay_summary, delete_momopay, share_float, get_user_by_phone
-)
-from datetime import datetime
-import hashlib
+import os
+import sqlite3
+from datetime import datetime, timedelta
+import hashlib 
 import io
 import csv
-import sqlite3
 
+from flask import Flask, request, render_template, redirect, url_for, session, flash, send_file, Response
+
+# ----------------------
+# APP SETUP
+# ----------------------
 app = Flask(__name__)
 app.secret_key = "super_secret_key"
 
-# -------------------
+# ----------------------
+# DATABASE
+# ----------------------
+DB_NAME = os.path.join(os.path.dirname(__file__), "users.db")
+
+# ----------------------
 # ADMIN LOGIN
-# -------------------
+# ----------------------
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD_HASH = hashlib.sha256("admin123".encode()).hexdigest()
 
+# ----------------------
+# DATABASE FUNCTIONS
+# ----------------------
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    # Users
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT,
+        phone TEXT,
+        national_id TEXT,
+        full_name TEXT,
+        address TEXT,
+        father_name TEXT,
+        mother_name TEXT,
+        loan_amount REAL,
+        duration INTEGER,
+        date_registered TEXT
+    )
+    """)
+    # Repayments
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS repayments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        amount REAL,
+        due_date TEXT,
+        paid INTEGER DEFAULT 0
+    )
+    """)
+    # MoMoPay
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS momopays (
+        phone TEXT PRIMARY KEY,
+        balance REAL,
+        float_shared REAL,
+        merged_batch REAL DEFAULT 0
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()  # Ensure DB exists
+
+# ----------------------
+# USER FUNCTIONS
+# ----------------------
+def add_user(session_id, phone, national_id, full_name, address, father_name, mother_name, loan_amount, duration):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    date_registered = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("""
+        INSERT INTO users (session_id, phone, national_id, full_name, address, father_name, mother_name, loan_amount, duration, date_registered)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (session_id, phone, national_id, full_name, address, father_name, mother_name, loan_amount, duration, date_registered))
+    user_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return user_id
+
+def search_users(search=""):
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    if search:
+        c.execute("SELECT * FROM users WHERE full_name LIKE ? OR phone LIKE ?", (f"%{search}%", f"%{search}%"))
+    else:
+        c.execute("SELECT * FROM users")
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_user_by_id(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE id=?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_user_by_phone(phone):
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE phone=?", (phone,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def delete_user(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("DELETE FROM users WHERE id=?", (user_id,))
+    c.execute("DELETE FROM repayments WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+# ----------------------
+# REPAYMENTS
+# ----------------------
+def generate_repayment_schedule(user_id, loan_amount, duration):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    installment_amount = loan_amount / duration
+    today = datetime.now()
+    for i in range(duration):
+        due_date = (today + timedelta(days=i+1)).strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("INSERT INTO repayments (user_id, amount, due_date) VALUES (?, ?, ?)", (user_id, installment_amount, due_date))
+    conn.commit()
+    conn.close()
+
+def get_repayments_by_user(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM repayments WHERE user_id=?", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def mark_repayment_as_paid(repayment_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE repayments SET paid=1 WHERE id=?", (repayment_id,))
+    conn.commit()
+    conn.close()
+
+# ----------------------
+# DASHBOARD SUMMARY
+# ----------------------
+def get_dashboard_summary():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    # Total users
+    c.execute("SELECT COUNT(*) FROM users")
+    total_users = c.fetchone()[0]
+    # Total loans
+    c.execute("SELECT SUM(loan_amount) FROM users")
+    total_loans = c.fetchone()[0] or 0
+    # Completed users
+    c.execute("""
+        SELECT COUNT(*) FROM users u
+        WHERE NOT EXISTS (
+            SELECT 1 FROM repayments r
+            WHERE r.user_id = u.id AND r.paid != 1
+        )
+    """)
+    completed_users = c.fetchone()[0]
+    in_progress = total_users - completed_users
+    conn.close()
+    return {
+        "total_users": total_users,
+        "total_loans": total_loans,
+        "completed_users": completed_users,
+        "in_progress": in_progress
+    }
+
+# ----------------------
+# ADMIN ROUTES
+# ----------------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -36,224 +204,106 @@ def logout():
     session.pop("admin", None)
     return redirect(url_for("login"))
 
-# -------------------
-# DASHBOARD
-# -------------------
 @app.route("/dashboard")
 def dashboard():
     if "admin" not in session:
         return redirect(url_for("login"))
 
-    summary = get_dashboard_summary()
     search = request.args.get("search", "")
+    all_users = search_users(search)
     page = int(request.args.get("page", 1))
     per_page = 5
-
-    all_users = search_users(search)
-    today = datetime.now()
-
-    for user in all_users:
-        repayments = get_repayments_by_user(user['id'])
-        total_paid = sum(r['amount'] for r in repayments if r.get('paid') == 1)
-        user['total_paid'] = total_paid
-        user['remaining'] = user['loan_amount'] - total_paid
-
-        next_unpaid = None
-        for r in repayments:
-            due = datetime.strptime(r['due_date'], "%Y-%m-%d %H:%M:%S")
-            if r.get('paid') == 0 and due >= today:
-                if next_unpaid is None or due < next_unpaid:
-                    next_unpaid = due
-        user['countdown_seconds'] = max(int((next_unpaid - today).total_seconds()), 0) if next_unpaid else 0
-
     total = len(all_users)
     start = (page - 1) * per_page
     end = start + per_page
     rows = all_users[start:end]
 
-    momopay_summary = get_merged_momopay_summary()
+    summary = get_dashboard_summary()
 
-    return render_template(
-        "dashboard.html",
-        summary=summary,
-        rows=rows,
-        search=search,
-        page=page,
-        total_pages=(total + per_page - 1) // per_page,
-        momopay_summary=momopay_summary
-    )
+    return render_template("dashboard.html",
+                           summary=summary,
+                           rows=rows,
+                           search=search,
+                           page=page,
+                           total_pages=(total + per_page - 1) // per_page)
 
-# -------------------
-# USER DETAILS
-# -------------------
-@app.route("/user/<int:user_id>")
-def user_details(user_id):
-    if "admin" not in session:
-        return redirect(url_for("login"))
-
-    user = get_user_by_id(user_id)
-    if not user:
-        flash("User not found", "error")
-        return redirect(url_for("dashboard"))
-
-    repayments = get_repayments_by_user(user_id)
-    today = datetime.now()
-    for r in repayments:
-        due_date = datetime.strptime(r["due_date"], "%Y-%m-%d %H:%M:%S")
-        delta = due_date - today
-        r["countdown"] = f"{delta.days} days" if delta.days > 0 else "0 days"
-        r["status"] = "Paid" if r.get("paid") == 1 else "Unpaid"
-
-    return render_template("user_details.html", user=user, repayments=repayments)
-
-# -------------------
-# DELETE USER
-# -------------------
-@app.route("/delete_user/<int:user_id>")
-def delete_user_route(user_id):
-    if "admin" not in session:
-        return redirect(url_for("login"))
-    delete_user(user_id)
-    flash("User deleted successfully", "success")
-    return redirect(url_for("dashboard"))
-
-# -------------------
-# MARK REPAYMENT PAID
-# -------------------
-@app.route("/mark_paid/<int:repayment_id>")
-def mark_paid_route(repayment_id):
-    if "admin" not in session:
-        return redirect(url_for("login"))
-
-    mark_repayment_as_paid(repayment_id)
-    share_float(repayment_id)
-
-    flash("Repayment marked as paid", "success")
-    return redirect(request.referrer or url_for("dashboard"))
-
-# -------------------
-# AUTO DEDUCT
-# -------------------
-@app.route("/auto_deduct")
-def auto_deduct_all():
-    if "admin" not in session:
-        return jsonify({"success": False, "message": "Unauthorized"})
-
-    today = datetime.now()
-    users = search_users()
-    momopays = get_momopays()
-    merged_balance = sum(m['balance'] for m in momopays)
-
-    for user in users:
-        repayments = get_repayments_by_user(user['id'])
-        for r in repayments:
-            if r.get('paid') == 0:
-                due_date = datetime.strptime(r['due_date'], "%Y-%m-%d %H:%M:%S")
-                if due_date <= today:
-                    c_user_momopay = next((m for m in momopays if m["phone"] == user['phone']), None)
-                    if c_user_momopay and c_user_momopay['balance'] >= r['amount']:
-                        update_momopay_balance(user['phone'], r['amount'])
-                    else:
-                        proportion = r['amount'] / merged_balance if merged_balance > 0 else 0
-                        for m in momopays:
-                            deduction = m['balance'] * proportion
-                            update_momopay_balance(m['phone'], deduction)
-                    mark_repayment_as_paid(r['id'])
-                    share_float(r['id'])
-
-    return jsonify({"success": True, "message": "Auto deduction completed"})
-
-# -------------------
-# USSD SIMULATION
-# -------------------
+# ----------------------
+# USSD ROUTE
+# ----------------------
 @app.route("/ussd", methods=["POST"])
 def ussd():
     session_id = request.form.get("sessionId")
-    service_code = request.form.get("serviceCode")
     phone_number = request.form.get("phoneNumber")
-    text = request.form.get("text", "").strip()
-
-    # Normalize phone number to +250 format
-    if phone_number.startswith("0"):
-        phone_number = "+250" + phone_number[1:]
+    text = request.form.get("text", "")
 
     user_response = text.split("*")
-    response = ""
-
+    
     if text == "":
-        # First screen
-        response = "CON Welcome to Loan System\n"
-        response += "1. Register\n"
-        response += "2. Check Loan Balance\n"
-        response += "3. Exit"
-
-    elif user_response[0] == "1":  # Registration flow
+        response_text = "CON Welcome to USSD Loan Service\n1. Register\n2. Check Loan\n3. View Repayments"
+    
+    elif user_response[0] == "1":  # Registration
         if len(user_response) == 1:
-            response = "CON Enter your Full Name:"
+            response_text = "CON Enter your National ID:"
         elif len(user_response) == 2:
-            response = "CON Enter Loan Amount:"
+            session["national_id"] = user_response[1]
+            response_text = "CON Enter your Full Name:"
         elif len(user_response) == 3:
-            response = "CON Enter Loan Duration (days):"
+            session["full_name"] = user_response[2]
+            response_text = "CON Enter your Address:"
         elif len(user_response) == 4:
-            full_name = user_response[1]
-            loan_amount = float(user_response[2])
-            duration = int(user_response[3])
-
-            # Save user in DB
+            session["address"] = user_response[3]
+            response_text = "CON Enter your Father's Name:"
+        elif len(user_response) == 5:
+            session["father_name"] = user_response[4]
+            response_text = "CON Enter your Mother's Name:"
+        elif len(user_response) == 6:
+            session["mother_name"] = user_response[5]
+            response_text = "CON Enter Loan Amount:"
+        elif len(user_response) == 7:
+            session["loan_amount"] = float(user_response[6])
+            response_text = "CON Enter Loan Duration (in days):"
+        elif len(user_response) == 8:
+            duration = int(user_response[7])
             user_id = add_user(
                 session_id,
                 phone_number,
-                "N/A",  # national_id not asked in USSD for now
-                full_name,
-                "",  # address
-                "",  # father_name
-                "",  # mother_name
-                loan_amount,
-                duration,
+                session.get("national_id"),
+                session.get("full_name"),
+                session.get("address"),
+                session.get("father_name"),
+                session.get("mother_name"),
+                session.get("loan_amount"),
+                duration
             )
-            generate_repayment_schedule(user_id, loan_amount, duration)
-
-            response = "END ✅ Registration successful! You will receive SMS confirmation."
+            generate_repayment_schedule(user_id, session.get("loan_amount"), duration)
+            response_text = "END ✅ Registration successful! You will receive SMS confirmation."
+    
+    elif user_response[0] == "2":  # Check Loan
+        user = get_user_by_phone(phone_number)
+        if not user:
+            response_text = "END You are not registered yet."
         else:
-            response = "END Invalid input. Please try again."
-
-    elif user_response[0] == "2":  # Check Loan Balance
-        try:
-            user = get_user_by_phone(phone_number)
-            if user:
-                repayments = get_repayments_by_user(user["id"])
-                total_paid = sum(r["amount"] for r in repayments if r["status"] == "Paid")
-                remaining = user["loan_amount"] - total_paid
-
-                # Find next repayment due
-                next_due = None
-                for r in repayments:
-                    if r["status"] != "Paid":
-                        next_due = r["due_date"]
-                        break
-
-                response = (
-                    f"END 📊 Loan Status\n"
-                    f"Loan: {user['loan_amount']}\n"
-                    f"Paid: {total_paid}\n"
-                    f"Balance: {remaining}\n"
-                    f"Next Due: {next_due if next_due else 'None'}"
-                )
+            response_text = f"END Hello {user['full_name']}, Loan Amount: RWF {user['loan_amount']}, Duration: {user['duration']} days"
+    
+    elif user_response[0] == "3":  # View Repayments
+        user = get_user_by_phone(phone_number)
+        if not user:
+            response_text = "END You are not registered yet."
+        else:
+            repayments = get_repayments_by_user(user["id"])
+            if not repayments:
+                response_text = "END No repayment schedule found."
             else:
-                response = "END ❌ No loan record found for your number."
-        except Exception as e:
-            response = "END ❌ Error checking balance. Please try again later."
-            print("USSD Balance Check Error:", e)
-
-    elif user_response[0] == "3":
-        response = "END Goodbye!"
-
+                lines = []
+                for r in repayments[-5:]:
+                    status = "Paid" if r["paid"] else "Unpaid"
+                    lines.append(f"{r['due_date'].split()[0]}: RWF {r['amount']} - {status}")
+                response_text = "END Last repayments:\n" + "\n".join(lines)
+    
     else:
-        response = "END Invalid option. Please try again."
+        response_text = "END Invalid choice."
 
-    return response
-
-
+    return Response(response_text, mimetype="text/plain")
 
 # -------------------
 # EXPORT USERS
@@ -281,39 +331,48 @@ def export_users():
         download_name="users_export.csv"
     )
 
-# ----------------------
-# MoMoPay Routes
-# ----------------------
-@app.route("/add_momopay", methods=["POST"])
-def add_momopay_route():
-    phone = request.form.get("phone")
-    balance = float(request.form.get("balance", 0))
-    float_shared = float(request.form.get("float_shared", 0))
-    if phone:
-        add_momopay(phone, balance, float_shared)
-        flash(f"MoMoPay account {phone} added successfully.", "success")
-    else:
-        flash("Phone number is required.", "error")
-    return redirect(url_for("dashboard"))
+# -------------------
+# USER DETAILS
+# -------------------
+@app.route("/user/<int:user_id>")
+def user_details(user_id):
+    if "admin" not in session:
+        return redirect(url_for("login"))
 
-@app.route("/update_momopay/<phone>", methods=["POST"])
-def update_momopay_route(phone):
-    balance = float(request.form.get("balance", 0))
-    float_shared = float(request.form.get("float_shared", 0))
-    conn = sqlite3.connect("users.db")
-    c = conn.cursor()
-    c.execute("UPDATE momopays SET balance=?, float_shared=? WHERE phone=?", (balance, float_shared, phone))
-    conn.commit()
-    conn.close()
-    flash(f"MoMoPay account {phone} updated successfully.", "success")
-    return redirect(url_for("dashboard"))
+    user = get_user_by_id(user_id)
+    if not user:
+        flash("User not found", "error")
+        return redirect(url_for("dashboard"))
 
-@app.route("/delete_momopay/<phone>", methods=["POST"])
-def delete_momopay_route(phone):
-    delete_momopay(phone)
-    flash(f"MoMoPay account {phone} deleted successfully.", "success")
-    return redirect(url_for("dashboard"))
+    repayments = get_repayments_by_user(user_id)
+    today = datetime.now()
+    for r in repayments:
+        due_date = datetime.strptime(r["due_date"], "%Y-%m-%d %H:%M:%S")
+        delta = due_date - today
+        r["countdown"] = f"{delta.days} days" if delta.days > 0 else "0 days"
+        r["status"] = "Paid" if r.get("paid") == 1 else "Unpaid"
+
+    return render_template("user_details.html", user=user, repayments=repayments)
+
+@app.route("/mark_paid/<int:repayment_id>")
+def mark_paid(repayment_id):
+    mark_repayment_as_paid(repayment_id)
+    flash("Repayment marked as Paid.", "success")
+    return redirect(request.referrer or url_for("dashboard"))
 
 # -------------------
+# DELETE USER
+# -------------------
+@app.route("/delete_user/<int:user_id>")
+def delete_user_route(user_id):
+    if "admin" not in session:
+        return redirect(url_for("login"))
+    delete_user(user_id)
+    flash("User deleted successfully", "success")
+    return redirect(url_for("dashboard"))
+
+# ----------------------
+# RUN APP
+# ----------------------
 if __name__ == "__main__":
     app.run(debug=True)

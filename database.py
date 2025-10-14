@@ -1,7 +1,8 @@
+import os
 import sqlite3
 from datetime import datetime, timedelta
 
-DB_NAME = "users.db"
+DB_NAME = os.path.join(os.path.dirname(__file__), "users.db")
 
 # ----------------------
 # DATABASE INITIALIZATION
@@ -15,7 +16,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id TEXT,
-        phone TEXT,
+        phone TEXT UNIQUE,
         national_id TEXT,
         full_name TEXT,
         address TEXT,
@@ -68,7 +69,6 @@ def add_user(session_id, phone, national_id, full_name, address, father_name, mo
     conn.close()
     return user_id
 
-
 def search_users(search=""):
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
@@ -81,7 +81,6 @@ def search_users(search=""):
     conn.close()
     return [dict(r) for r in rows]
 
-
 def get_user_by_id(user_id):
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
@@ -91,6 +90,14 @@ def get_user_by_id(user_id):
     conn.close()
     return dict(row) if row else None
 
+def get_user_by_phone(phone):
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE phone=?", (phone,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 def delete_user(user_id):
     conn = sqlite3.connect(DB_NAME)
@@ -107,14 +114,13 @@ def delete_user(user_id):
 def generate_repayment_schedule(user_id, loan_amount, duration):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    installment_amount = loan_amount / duration
+    installment_amount = round(loan_amount / duration, 2)
     today = datetime.now()
     for i in range(duration):
         due_date = (today + timedelta(days=i+1)).strftime("%Y-%m-%d %H:%M:%S")
         c.execute("INSERT INTO repayments (user_id, amount, due_date) VALUES (?, ?, ?)", (user_id, installment_amount, due_date))
     conn.commit()
     conn.close()
-
 
 def get_repayments_by_user(user_id):
     conn = sqlite3.connect(DB_NAME)
@@ -124,7 +130,6 @@ def get_repayments_by_user(user_id):
     rows = c.fetchall()
     conn.close()
     return [dict(r) for r in rows]
-
 
 def mark_repayment_as_paid(repayment_id):
     conn = sqlite3.connect(DB_NAME)
@@ -141,15 +146,12 @@ def get_dashboard_summary():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    # Total users
     c.execute("SELECT COUNT(*) FROM users")
     total_users = c.fetchone()[0]
 
-    # Total loans
     c.execute("SELECT SUM(loan_amount) FROM users")
     total_loans = c.fetchone()[0] or 0
 
-    # Completed users: all repayments paid
     c.execute("""
         SELECT COUNT(*) FROM users u
         WHERE NOT EXISTS (
@@ -158,8 +160,6 @@ def get_dashboard_summary():
         )
     """)
     completed_users = c.fetchone()[0]
-
-    # In progress
     in_progress = total_users - completed_users
 
     conn.close()
@@ -169,16 +169,6 @@ def get_dashboard_summary():
         "completed_users": completed_users,
         "in_progress": in_progress
     }
-
-def get_user_by_phone(phone):
-    conn = sqlite3.connect("users.db")
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE phone = ?", (phone,))
-    user = c.fetchone()
-    conn.close()
-    return dict(user) if user else None
-
 
 
 # ----------------------
@@ -193,14 +183,12 @@ def get_momopays():
     conn.close()
     return [dict(r) for r in rows]
 
-
 def add_momopay(phone, balance, float_shared):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO momopays (phone, balance, float_shared) VALUES (?, ?, ?)", (phone, balance, float_shared))
     conn.commit()
     conn.close()
-
 
 def update_momopay_balance(phone, amount):
     conn = sqlite3.connect(DB_NAME)
@@ -209,16 +197,8 @@ def update_momopay_balance(phone, amount):
     conn.commit()
     conn.close()
 
-
 def get_merged_momopay_summary():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT phone, balance, float_shared, merged_batch FROM momopays")
-    rows = c.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
+    return get_momopays()
 
 def delete_momopay(phone):
     conn = sqlite3.connect(DB_NAME)
@@ -227,7 +207,10 @@ def delete_momopay(phone):
     conn.commit()
     conn.close()
 
-
 def share_float(repayment_id):
-    # Placeholder for future MoMoPay sharing logic
+    # Placeholder: Implement MoMoPay float sharing logic if needed
     pass
+
+
+# Initialize DB when module is imported
+init_db()
