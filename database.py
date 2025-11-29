@@ -39,19 +39,8 @@ def init_db():
     )
     """)
 
-    # MoMoPay accounts table
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS momopays (
-        phone TEXT PRIMARY KEY,
-        balance REAL,
-        float_shared REAL,
-        merged_batch REAL DEFAULT 0
-    )
-    """)
-
     conn.commit()
     conn.close()
-
 
 # ----------------------
 # USER FUNCTIONS
@@ -107,7 +96,6 @@ def delete_user(user_id):
     conn.commit()
     conn.close()
 
-
 # ----------------------
 # REPAYMENT FUNCTIONS
 # ----------------------
@@ -137,7 +125,6 @@ def mark_repayment_as_paid(repayment_id):
     c.execute("UPDATE repayments SET paid=1 WHERE id=?", (repayment_id,))
     conn.commit()
     conn.close()
-
 
 # ----------------------
 # DASHBOARD SUMMARY
@@ -169,48 +156,6 @@ def get_dashboard_summary():
         "completed_users": completed_users,
         "in_progress": in_progress
     }
-
-
-# ----------------------
-# MoMoPay FUNCTIONS
-# ----------------------
-def get_momopays():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT phone, balance, float_shared, merged_batch FROM momopays")
-    rows = c.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-def add_momopay(phone, balance, float_shared):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO momopays (phone, balance, float_shared) VALUES (?, ?, ?)", (phone, balance, float_shared))
-    conn.commit()
-    conn.close()
-
-def update_momopay_balance(phone, amount):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("UPDATE momopays SET balance = balance - ? WHERE phone=?", (amount, phone))
-    conn.commit()
-    conn.close()
-
-def get_merged_momopay_summary():
-    return get_momopays()
-
-def delete_momopay(phone):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("DELETE FROM momopays WHERE phone=?", (phone,))
-    conn.commit()
-    conn.close()
-
-def share_float(repayment_id):
-    # Placeholder: Implement MoMoPay float sharing logic if needed
-    pass
-
 
 # Initialize DB when module is imported
 init_db()

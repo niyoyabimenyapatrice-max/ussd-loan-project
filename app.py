@@ -1,7 +1,7 @@
 import os
 import sqlite3
 from datetime import datetime, timedelta
-import hashlib 
+import hashlib
 import io
 import csv
 
@@ -25,17 +25,18 @@ ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD_HASH = hashlib.sha256("admin123".encode()).hexdigest()
 
 # ----------------------
-# DATABASE FUNCTIONS
+# DATABASE INITIALIZATION
 # ----------------------
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # Users
+
+    # Users table
     c.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id TEXT,
-        phone TEXT,
+        phone TEXT UNIQUE,
         national_id TEXT,
         full_name TEXT,
         address TEXT,
@@ -46,7 +47,8 @@ def init_db():
         date_registered TEXT
     )
     """)
-    # Repayments
+
+    # Repayments table
     c.execute("""
     CREATE TABLE IF NOT EXISTS repayments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,19 +58,11 @@ def init_db():
         paid INTEGER DEFAULT 0
     )
     """)
-    # MoMoPay
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS momopays (
-        phone TEXT PRIMARY KEY,
-        balance REAL,
-        float_shared REAL,
-        merged_batch REAL DEFAULT 0
-    )
-    """)
+
     conn.commit()
     conn.close()
 
-init_db()  # Ensure DB exists
+init_db()
 
 # ----------------------
 # USER FUNCTIONS
@@ -130,7 +124,7 @@ def delete_user(user_id):
 def generate_repayment_schedule(user_id, loan_amount, duration):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    installment_amount = loan_amount / duration
+    installment_amount = round(loan_amount / duration, 2)
     today = datetime.now()
     for i in range(duration):
         due_date = (today + timedelta(days=i+1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -142,7 +136,7 @@ def get_repayments_by_user(user_id):
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    c.execute("SELECT * FROM repayments WHERE user_id=?", (user_id,))
+    c.execute("SELECT id, user_id, amount, due_date, paid FROM repayments WHERE user_id=?", (user_id,))
     rows = c.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -160,13 +154,13 @@ def mark_repayment_as_paid(repayment_id):
 def get_dashboard_summary():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # Total users
+
     c.execute("SELECT COUNT(*) FROM users")
     total_users = c.fetchone()[0]
-    # Total loans
+
     c.execute("SELECT SUM(loan_amount) FROM users")
     total_loans = c.fetchone()[0] or 0
-    # Completed users
+
     c.execute("""
         SELECT COUNT(*) FROM users u
         WHERE NOT EXISTS (
@@ -176,6 +170,7 @@ def get_dashboard_summary():
     """)
     completed_users = c.fetchone()[0]
     in_progress = total_users - completed_users
+
     conn.close()
     return {
         "total_users": total_users,
@@ -228,6 +223,72 @@ def dashboard():
                            total_pages=(total + per_page - 1) // per_page)
 
 # ----------------------
+# USER DETAILS
+# ----------------------
+@app.route("/user/<int:user_id>")
+def user_details(user_id):
+    if "admin" not in session:
+        return redirect(url_for("login"))
+
+    user = get_user_by_id(user_id)
+    if not user:
+        flash("User not found", "error")
+        return redirect(url_for("dashboard"))
+
+    repayments = get_repayments_by_user(user_id)
+    today = datetime.now()
+    for r in repayments:
+        due_date = datetime.strptime(r["due_date"], "%Y-%m-%d %H:%M:%S")
+        delta = due_date - today
+        r["countdown"] = f"{delta.days} days" if delta.days > 0 else "0 days"
+        r["status"] = "Paid" if r.get("paid") == 1 else "Unpaid"
+
+    return render_template("user_details.html", user=user, repayments=repayments)
+
+@app.route("/mark_paid/<int:repayment_id>")
+def mark_paid(repayment_id):
+    mark_repayment_as_paid(repayment_id)
+    flash("Repayment marked as Paid.", "success")
+    return redirect(request.referrer or url_for("dashboard"))
+
+# ----------------------
+# DELETE USER
+# ----------------------
+@app.route("/delete_user/<int:user_id>")
+def delete_user_route(user_id):
+    if "admin" not in session:
+        return redirect(url_for("login"))
+    delete_user(user_id)
+    flash("User deleted successfully", "success")
+    return redirect(url_for("dashboard"))
+
+# ----------------------
+# EXPORT USERS
+# ----------------------
+@app.route("/export")
+def export_users():
+    users = search_users()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ID", "Session ID", "Phone", "National ID", "Full Name",
+        "Address", "Father", "Mother", "Loan Amount", "Duration", "Date Registered"
+    ])
+    for u in users:
+        writer.writerow([
+            u["id"], u["session_id"], u["phone"], u["national_id"], u["full_name"],
+            u["address"], u["father_name"], u["mother_name"], u["loan_amount"], u["duration"],
+            u.get("date_registered", "")
+        ])
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode()),
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name="users_export.csv"
+    )
+
+# ----------------------
 # USSD ROUTE
 # ----------------------
 @app.route("/ussd", methods=["POST"])
@@ -237,7 +298,7 @@ def ussd():
     text = request.form.get("text", "")
 
     user_response = text.split("*")
-    
+
     if text == "":
         response_text = "CON Welcome to USSD Loan Service\n1. Register\n2. Check Loan\n3. View Repayments"
     
@@ -276,15 +337,15 @@ def ussd():
                 duration
             )
             generate_repayment_schedule(user_id, session.get("loan_amount"), duration)
-            response_text = "END ✅ Registration successful! You will receive SMS confirmation."
-    
+            response_text = "END ✅ Registration successful!"
+
     elif user_response[0] == "2":  # Check Loan
         user = get_user_by_phone(phone_number)
         if not user:
             response_text = "END You are not registered yet."
         else:
             response_text = f"END Hello {user['full_name']}, Loan Amount: RWF {user['loan_amount']}, Duration: {user['duration']} days"
-    
+
     elif user_response[0] == "3":  # View Repayments
         user = get_user_by_phone(phone_number)
         if not user:
@@ -299,77 +360,11 @@ def ussd():
                     status = "Paid" if r["paid"] else "Unpaid"
                     lines.append(f"{r['due_date'].split()[0]}: RWF {r['amount']} - {status}")
                 response_text = "END Last repayments:\n" + "\n".join(lines)
-    
+
     else:
         response_text = "END Invalid choice."
 
     return Response(response_text, mimetype="text/plain")
-
-# -------------------
-# EXPORT USERS
-# -------------------
-@app.route("/export")
-def export_users():
-    users = search_users()
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow([
-        "ID", "Session ID", "Phone", "National ID", "Full Name",
-        "Address", "Father", "Mother", "Loan Amount", "Duration", "Date Registered"
-    ])
-    for u in users:
-        writer.writerow([
-            u["id"], u["session_id"], u["phone"], u["national_id"], u["full_name"],
-            u["address"], u["father_name"], u["mother_name"], u["loan_amount"], u["duration"],
-            u.get("date_registered", "")
-        ])
-    output.seek(0)
-    return send_file(
-        io.BytesIO(output.getvalue().encode()),
-        mimetype="text/csv",
-        as_attachment=True,
-        download_name="users_export.csv"
-    )
-
-# -------------------
-# USER DETAILS
-# -------------------
-@app.route("/user/<int:user_id>")
-def user_details(user_id):
-    if "admin" not in session:
-        return redirect(url_for("login"))
-
-    user = get_user_by_id(user_id)
-    if not user:
-        flash("User not found", "error")
-        return redirect(url_for("dashboard"))
-
-    repayments = get_repayments_by_user(user_id)
-    today = datetime.now()
-    for r in repayments:
-        due_date = datetime.strptime(r["due_date"], "%Y-%m-%d %H:%M:%S")
-        delta = due_date - today
-        r["countdown"] = f"{delta.days} days" if delta.days > 0 else "0 days"
-        r["status"] = "Paid" if r.get("paid") == 1 else "Unpaid"
-
-    return render_template("user_details.html", user=user, repayments=repayments)
-
-@app.route("/mark_paid/<int:repayment_id>")
-def mark_paid(repayment_id):
-    mark_repayment_as_paid(repayment_id)
-    flash("Repayment marked as Paid.", "success")
-    return redirect(request.referrer or url_for("dashboard"))
-
-# -------------------
-# DELETE USER
-# -------------------
-@app.route("/delete_user/<int:user_id>")
-def delete_user_route(user_id):
-    if "admin" not in session:
-        return redirect(url_for("login"))
-    delete_user(user_id)
-    flash("User deleted successfully", "success")
-    return redirect(url_for("dashboard"))
 
 # ----------------------
 # RUN APP
