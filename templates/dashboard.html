@@ -4,97 +4,137 @@
     <meta charset="UTF-8">
     <title>Admin Dashboard</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+
+    <style>
+        body { background: #f7f7f7; }
+        .card { border-radius: 12px; }
+        .table th, .table td { vertical-align: middle !important; }
+        .badge { font-size: 0.9rem; }
+    </style>
 </head>
+
 <body>
-<div class="container mt-5">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2>Admin Dashboard</h2>
+<div class="container mt-4">
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold">Admin Dashboard</h2>
         <div>
-            <a href="{{ url_for('export_users') }}" class="btn btn-success">⬇ Export to CSV</a>
+            <a href="{{ url_for('admin_profile') }}" class="btn btn-secondary">Admin Info</a>
+            <a href="{{ url_for('export_users') }}" class="btn btn-success">⬇ Export CSV</a>
             <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
         </div>
     </div>
 
-    <!-- Dashboard summary -->
+    <!-- Dashboard Summary -->
     <div class="row mb-4">
+
         <div class="col-md-3">
-            <div class="card text-center bg-primary text-white">
+            <div class="card text-center text-white bg-primary">
                 <div class="card-body">
-                    <h5>Total Users</h5>
-                    <p>{{ summary.total_users }}</p>
+                    <h6>Total Users</h6>
+                    <h3>{{ summary.total_users }}</h3>
                 </div>
             </div>
         </div>
+
         <div class="col-md-3">
-            <div class="card text-center bg-success text-white">
+            <div class="card text-center text-white bg-success">
                 <div class="card-body">
-                    <h5>Total Loans</h5>
-                    <p>{{ summary.total_loans }}</p>
+                    <h6>Total Loans</h6>
+                    <h3>{{ summary.total_loans }}</h3>
                 </div>
             </div>
         </div>
+
         <div class="col-md-3">
-            <div class="card text-center bg-info text-white">
+            <div class="card text-center text-white bg-info">
                 <div class="card-body">
-                    <h5>Completed Users</h5>
-                    <p>{{ summary.completed_users }}</p>
+                    <h6>Finished Repayments</h6>
+                    <h3>{{ summary.completed_users }}</h3>
                 </div>
             </div>
         </div>
+
         <div class="col-md-3">
-            <div class="card text-center bg-warning text-dark">
+            <div class="card text-center text-dark bg-warning">
                 <div class="card-body">
-                    <h5>In Progress</h5>
-                    <p>{{ summary.in_progress }}</p>
+                    <h6>In Progress</h6>
+                    <h3>{{ summary.in_progress }}</h3>
                 </div>
             </div>
         </div>
+
     </div>
 
-    <!-- Search form -->
+    <!-- Search Bar -->
     <form method="get" action="{{ url_for('dashboard') }}" class="mb-3">
         <div class="input-group">
-            <input type="text" name="search" value="{{ search }}" class="form-control" placeholder="Search users...">
-            <button class="btn btn-outline-secondary" type="submit">Search</button>
+            <input type="text" name="search" class="form-control"
+                value="{{ search }}" placeholder="Search users by name, phone, NID...">
+            <button class="btn btn-outline-dark">Search</button>
         </div>
     </form>
 
-    <!-- Users table -->
-    <table class="table table-bordered table-striped">
-        <thead>
-        <tr>
-            <th>ID</th>
-            <th>Full Name</th>
-            <th>Phone</th>
-            <th>Loan Amount</th>
-            <th>Total Paid</th>
-            <th>Remaining</th>
-            <th>Next Repayment (seconds)</th>
-            <th>Actions</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for u in rows %}
-        <tr>
-            <td>{{ u['id'] }}</td>
-            <td>{{ u['full_name'] }}</td>
-            <td>{{ u['phone'] }}</td>
-            <td>{{ u['loan_amount'] }}</td>
-            <td>{{ u['total_paid'] }}</td>
-            <td>{{ u['remaining'] }}</td>
-            <td>{{ u['countdown_seconds'] }}</td>
-            <td>
-                <a href="{{ url_for('user_details', user_id=u.id) }}" class="btn btn-primary btn-sm">View</a>
-                <a href="{{ url_for('delete_user_route', user_id=u.id) }}" class="btn btn-danger btn-sm">Delete</a>
-            </td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+    <!-- Users Table -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white">
+            <h5 class="mb-0">Registered Users</h5>
+        </div>
+
+        <div class="card-body p-0">
+            <table class="table table-bordered table-striped mb-0">
+                <thead class="table-dark">
+                <tr>
+                    <th>#ID</th>
+                    <th>Full Name</th>
+                    <th>Phone</th>
+                    <th>Loan</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                    <th>Date Registered</th>
+                    <th>Actions</th>
+                </tr>
+                </thead>
+
+                <tbody>
+                {% for u in rows %}
+                <tr>
+                    <td>{{ u['id'] }}</td>
+                    <td>{{ u['full_name'] }}</td>
+                    <td>{{ u['phone'] }}</td>
+                    <td>{{ u['loan_amount'] }}</td>
+                    <td>{{ u['duration'] }}</td>
+
+                    <td>
+                        {% if u['status'] == 'Completed' %}
+                            <span class="badge bg-success">Completed</span>
+                        {% elif u['status'] == 'In Progress' %}
+                            <span class="badge bg-warning text-dark">In Progress</span>
+                        {% else %}
+                            <span class="badge bg-danger">Overdue</span>
+                        {% endif %}
+                    </td>
+
+                    <td>{{ u['date_registered'] }}</td>
+
+                    <td>
+                        <a href="{{ url_for('user_details', user_id=u['id']) }}" class="btn btn-primary btn-sm">View</a>
+                        <a href="{{ url_for('repayments', user_id=u['id']) }}" class="btn btn-info btn-sm">Repayments</a>
+                        <a href="{{ url_for('edit_user', user_id=u['id']) }}" class="btn btn-warning btn-sm text-dark">Edit</a>
+                        <a href="{{ url_for('delete_user_route', user_id=u['id']) }}" class="btn btn-danger btn-sm">Delete</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+
+            </table>
+        </div>
+    </div>
 
     <!-- Pagination -->
-    <nav>
-        <ul class="pagination">
+    <nav class="mt-3">
+        <ul class="pagination justify-content-center">
             {% for p in range(1, total_pages + 1) %}
             <li class="page-item {% if p == page %}active{% endif %}">
                 <a class="page-link" href="{{ url_for('dashboard') }}?page={{ p }}&search={{ search }}">{{ p }}</a>
@@ -103,28 +143,6 @@
         </ul>
     </nav>
 
-    <!-- MoMoPay summary -->
-    <h3 class="mt-5">MoMoPay Accounts</h3>
-    <table class="table table-bordered">
-        <thead>
-        <tr>
-            <th>Phone</th>
-            <th>Balance</th>
-            <th>Float Shared</th>
-            <th>Merged Batch</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for m in momopay_summary %}
-        <tr>
-            <td>{{ m.phone }}</td>
-            <td>{{ m.balance }}</td>
-            <td>{{ m.float_shared }}</td>
-            <td>{{ m.merged_batch }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table>
 </div>
 </body>
 </html>
